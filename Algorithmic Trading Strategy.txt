@@ -1,0 +1,215 @@
+#   MScFE 610 Econometrics (C20-S1) Timezone Group 3 - A
+
+# Group members:
+#     Chidiebere Ogbuchi – chiboyogbuchi@yahoo.com
+#     Tolulope T. Ogunsami - ogunsamitolulope@gmail.com
+#     Abiodun Jimoh - Sulaiman.jumah@gmail.com
+
+# Load necessary packages
+library(zoo)
+library(TTR)
+library(vars)
+library(readxl)
+library(tidyverse)
+library(stats)
+library(tseries)
+library(forecast)
+library(timeSeries)
+library(tsDyn)
+library(readr)
+library(dplyr)
+library(ggplot2)
+library(scales)
+library(quantmod)
+library(magrittr)
+
+
+#Load Exxon Mobil (XOM) 
+XOM <- read_excel("XOM.xlsx", col_types = c("date", 
+                                            "numeric", "numeric", "numeric", "numeric", 
+                                            "numeric", "numeric"))
+View(XOM)
+
+#Load Chevron Corporation (CVX)
+CVX <- read_excel("CVX.xlsx", col_types = c("date", 
+                                            "numeric", "numeric", "numeric", "numeric", 
+                                            "numeric", "numeric"))
+View(CVX)
+
+#Transforming stocks to Dataframe
+XOM_data <- data.frame(date = XOM$Date, 
+                       XOM, 
+                       row.names = NULL) %>% 
+  select(date, close = 'Adj.Close')
+CVX_data <- data.frame(date = CVX$Date, 
+                       CVX, 
+                       row.names = NULL) %>% 
+  select(date, close = 'Adj.Close')
+
+#combining the stocks to one data
+combined_close <- XOM_data %>% 
+  mutate(ticker = 'XOM') %>%
+  bind_rows(., 
+            CVX_data %>%
+              mutate(ticker = 'CVX'))
+  
+view(combined_close)
+
+#Visualization of Closing Stocks
+g <- ggplot(data = combined_close, 
+            aes(x = date, y = close, color = ticker)) + 
+  geom_line()
+g <- g + labs(title = "Stock Values at Closing", 
+              caption = "Source: Yahoo Finance") 
+print(g)
+
+
+#To determine statistical properties
+##To calculate Average stock value
+Av_XOM <- mean(XOM_data$close)
+View(Av_XOM)
+Av_CVX <- mean(CVX_data$close)
+View(Av_CVX)
+
+##To Calculate JPM Stock volatility
+Sd_XOM = sd(XOM_data$close)
+View(Sd_XOM)
+Sd_CVX = sd(CVX_data$close)
+View(Sd_CVX)
+
+# Cointegration and Correlation analysis of both stocks
+#Selecting and Converting  data frame to ln format
+lnXOM = log(XOM_data$close)
+lnCVX = log(CVX_data$close)
+# find changes in rates by differencing: 
+diff_XOM <- diff(`lnXOM`,trim=TRUE) 
+diff_CVX <- diff(`lnCVX`,trim=TRUE) 
+d_bind = cbind(diff_XOM, diff_CVX)
+
+# simple correlations: 
+cor(d_bind)
+
+# Eigen test
+Cointest1 <- ca.jo(d_bind, type="eigen", K=10, ecdet="const", spec="transitory") 
+summary(Cointest1) 
+Cointest1
+Cointest1@teststat[2]
+Cointest1@teststat[1]
+#Taking critical Value
+Cointest1@cval
+
+# Johansen test
+Cointest2 <- ca.jo(d_bind, type="trace", K=10, ecdet="const", spec="longrun") 
+summary(Cointest2)
+Cointest2
+Cointest2@teststat[2]
+Cointest2@teststat[1]
+#Taking critical Value
+Cointest2@cval
+
+
+#To Calculate and Plot Spread
+##binding the closing stocks
+spread_sheet <- cbind(XOM_data, CVX_data[ ,2])
+colnames(spread_sheet)[3] <- "CVX_Adj_close"
+colnames(spread_sheet)[2] <- "XOM_Adj_close"
+view(spread_sheet)
+
+##Calculating spread
+#Implement linear regression to determine slope, intercepts, Residuals...
+linear_regression = lm(XOM_data$close ~ CVX_data$close)
+View(linear_regression)
+summary(linear_regression)
+
+spread_data <- spread_sheet %>% 
+  mutate(Spread = spread_sheet$XOM_Adj_close - spread_sheet$CVX_Adj_close*0.745 - 9.122)
+
+view(spread_data)
+
+Spread_df <- data.frame(date = spread_data$date, 
+                        spread_data, 
+                        row.names = NULL)
+
+##Visualizing Spread
+g_df <- ggplot(data = Spread_df, mapping = aes(x=date, y= `Spread`)) + geom_line(color 
+                                                                                     ="darkblue") + labs(x="date",y="spread", title = "Graph of Spread") + 
+  geom_point() + geom_smooth(method = 'lm', color = 'red', size = 1) +
+  theme_void() + theme(axis.text = element_text(size = rel(1)))
+print(g_df)
+
+
+# conduct formal stationarity tests for spread:
+## augmented dickey fuller tests:
+adf.test(Spread_df$Spread)
+## KPSS tests:
+kpss.test(Spread_df$Spread)
+
+#To Calculate Z-score to determine trade
+##Calculating 250-day rolling average and SD of spread
+Spread_Rolling_Av <- runMean(spread_data$Spread, 250)
+Spread_Rolling_Sd <- runSD(spread_data$Spread, 250, sample = FALSE)
+
+zdf <- (spread_data %>% 
+  mutate(Spread_Rolling_Av) %>%
+  mutate(z_score = (spread_data$Spread[249:751] - Spread_Rolling_Av)/(Spread_Rolling_Sd)))
+view(zdf)
+
+##VIsualizing Z-score
+z_gdf <- ggplot(data = zdf, mapping = aes(x=date, y= `z_score`)) + geom_line(color 
+                                                                                                  ="darkblue") + labs(x="date",y="z_score", title = "Graph of Z_score ") + 
+  geom_point() + geom_smooth(method = 'lm', color = 'red', size = 1) +
+  theme_void() + theme(axis.text = element_text(size = rel(1)))
+print(z_gdf)
+
+
+#To calculate Portfolio Risk
+##Calculate Average stock value
+#using the statistical properties - Average & SD
+combined_portfolio <- zdf %>% 
+  mutate(XOM_weight = XOM_Adj_close^2 * Sd_XOM^2) %>%
+  mutate(CVX_weight = CVX_Adj_close^2 * Sd_CVX^2) %>% 
+  mutate(Portfolio_risk = sqrt(XOM_weight*CVX_weight*Sd_XOM*Sd_CVX))
+        
+view(combined_portfolio)
+
+##Visualizing Portfolio Risk
+c_df <- ggplot(data = combined_portfolio, mapping = aes(x=date, y= `Portfolio_risk`)) + geom_line(color 
+                                                                                 ="darkblue") + labs(x="date",y="spread", title = "Graph of Portfolio Risk") + 
+  geom_point() + geom_smooth(method = 'lm', color = 'red', size = 1) +
+  theme_void() + theme(axis.text = element_text(size = rel(1)))
+print(c_df)
+
+
+#To generate automated trading signals using:
+##Moving average convergence divergence (MACD)
+macd<- MACD(combined_portfolio$Spread, nFast =12, nSlow = 26, nSig = 9, maType="SMA", percent= FALSE)
+summary(macd)
+plot(macd)
+
+##Bollinger band indicators
+Sd_spread = sd(combined_portfolio$Spread)
+bollinger_band <- BBands(combined_portfolio$Spread, n = 25, maType="SMA", sd = Sd_spread)
+summary(bollinger_band)
+plot(bollinger_band)
+
+Signal<-NULL
+signal <- ifelse(combined_portfolio$Spread > bollinger_band[,'up'] &
+                   macd[,'macd']>macd[,'signal'],1,ifelse(combined_portfolio$Spread < bollinger_band[,'dn'] &
+                                                            macd[,'macd']<macd[,'signal'],-1,0))
+
+
+#To Forecast the future evolution of the Spread
+##Convert to time-series
+spreadarima <- ts(combined_portfolio$Spread, start = c(2000,10), frequency = 250)
+plot(spreadarima)
+
+##Determine ARIMA model using Auto ARIMA
+AR_model <- auto.arima(spreadarima)
+summary(AR_model)
+
+##Forecast using Auto ARIMA output - ARIMA(3,1,1)
+Spread_forecast = arima(spreadarima, order = c(3,1,1))
+forecastedvalues = forecast(Spread_forecast, h = 300)
+forecastedvalues
+plot(forecastedvalues)
+

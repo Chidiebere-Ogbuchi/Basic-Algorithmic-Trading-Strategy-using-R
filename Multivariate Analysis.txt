@@ -1,0 +1,134 @@
+# Load necessary packages
+library(urca)
+library(vars)
+library(readxl)
+library(tidyverse)
+library(stats)
+library(tseries)
+library(forecast)
+library(timeSeries)
+library(tsDyn)
+
+
+#Load USD - Naira Exchange rates
+library(readxl)
+Exchange_rate <- read_excel("Exchange rate.xlsx", 
+                            col_types = c("date", "text", "numeric", 
+                                          "text", "numeric", "numeric", "numeric"))
+
+View(Exchange_rate)
+
+attach(Exchange_rate)
+
+#Series must be non-stationary
+#Visualization to confirm
+ggplot(data = Exchange_rate, mapping = aes(x=`Rate Date`, y=`Central Rate`))+ ylim(290, 390) + geom_line(color
+                                                                                     ="darkblue") + labs(x="Year",y="USD - Naira Exchange_rate")
+
+
+#Selecting and Converting  data frame to ln format
+lnBR = log(`Buying Rate`)
+lnSR = log(`Selling Rate`)
+
+# Convert the data frame to a time series object (log)
+ER_BR <- ts(`Buying Rate`, start=2019,frequency=6)
+ER_SR <- ts(`Selling Rate`, start=2019,frequency=6)
+
+#Augmented Dickey-Fuller Test for checking the existence of a unit root. 
+#Auto-correlation
+# construct the ACF for the full and truncated sample
+acf(ER_BR)
+acf(ER_SR)
+
+# construct the PACF for the full and truncated sample
+pacf(ER_BR)
+pacf(ER_SR)
+
+# conduct formal stationarity tests:
+# augmented dickey fuller tests:
+adf.test(ER_BR)
+adf.test(ER_SR)
+
+# KPSS tests:
+kpss.test(ER_BR)
+kpss.test(ER_SR)
+
+
+# find changes in rates by differencing: 
+diff_BR <- diff(`lnBR`,trim=TRUE) 
+diff_SR <- diff(`lnSR`,trim=TRUE) 
+
+d_rates = cbind(diff_BR, diff_SR)
+
+# simple correlations: 
+cor(d_rates)
+
+# estimate a Vector Auto Regression
+#testing using VAR
+VAR_model <- VAR(d_rates, lag.max=10, type = "none", ic = 'AIC')
+summary(VAR_model)
+
+#testing using Auto Var to know the best lag length for the cointegration model
+Auto_Var <- VARselect(d_rates, lag.max = 20, type = "const")
+VARselect(d_rates, lag.max = 20, type = "const")$selection
+#from the AIC best lag is 1
+
+# compute and plot the impulse response functions 
+VAR_irf <- irf(Auto_Var, n.ahead = 13,boot = TRUE, ci = 0.95) 
+plot(VAR_irf)
+
+# compute and plot the forecast error variance decomposition 
+VAR_fevd <- fevd(Auto_Var, n.ahead = 13) 
+plot(VAR_fevd)
+
+# obtain residuals: 
+resids = residuals(VAR_model) 
+resid1 = resids[,1] 
+resid2 = resids[,2] 
+
+# view cross correlogram: 
+ccf(resid1, resid2, lag.max = 13, type = "correlation", plot = TRUE)
+
+
+## Cointegration Analysis
+# Eigen test
+Cointest1 <- ca.jo(d_rates, type="eigen", K=10, ecdet="const", spec="transitory") 
+summary(Cointest1) 
+
+Cointest1
+Cointest1@teststat[2]
+Cointest1@teststat[1]
+
+#Taking critical Value
+Cointest1@cval
+
+
+# Johansen test
+Cointest2 <- ca.jo(d_rates, type="trace", K=10, ecdet="const", spec="longrun") 
+summary(Cointest2)
+
+Cointest2
+Cointest2@teststat[2]
+Cointest2@teststat[1]
+
+#Taking critical Value
+Cointest2@cval
+
+
+#Run VECM
+VECMe <- cajorls(Cointest1)
+summary(VECMe)
+
+VECMe$rlm$coefficients[1,1]
+VECMe$rlm$coefficients[2,1]
+
+VECMe$beta[1,1]
+VECMe$beta[2,1]
+
+# Fit cointegrated VECM 
+VECM_fit <- VECM(d_rates,1,r = 1, include = "const",estim = "ML", 
+                 LRinclude = "none")
+summary(VECM_fit)
+
+VECM.predict<-predict(VECM_fit,n.ahead=4)
+plot(VECM.predict)

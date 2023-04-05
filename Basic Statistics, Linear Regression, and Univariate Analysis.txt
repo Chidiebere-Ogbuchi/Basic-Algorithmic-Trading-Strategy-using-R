@@ -1,0 +1,178 @@
+#   MScFE 610 Econometrics (C20-S1) Timezone Group 3 - A
+
+# Group members:
+#     Chidiebere Ogbuchi – chiboyogbuchi@yahoo.com
+#     Tolulope Ogunsami - ogunsamitolulope@gmail.com
+
+# Load necessary packages
+library(tidyverse)
+library(readr)
+library(readxl)
+library(stats)
+library(tseries)
+library(forecast)
+library(MASS)
+
+#Question 1 - BASIC STATISTICS
+
+#Load JP Morgan Stock Historical Prices
+JPM_Data <- read_excel("JPM Data.xlsx", col_types = c("date", 
+                                                      "numeric", "numeric", "numeric", "numeric", 
+                                                      "numeric", "numeric"))
+View(JPM_Data)
+
+#To Calculate Average stock value
+mean(JPM_Data$`Adj Close`)
+Average_stock_value = mean(JPM_Data$'Adj Close')
+View(Average_stock_value)
+
+#To Calculate JPM Stock volatility
+sd(JPM_Data$`Adj Close`)
+JPM_stock_volatility = sd(JPM_Data$`Adj Close`)
+View(JPM_stock_volatility)
+
+#To Calculate JPM Daily stock returns
+num = length(JPM_Data$'Adj Close')
+JPM_Daily_stock_returns = log(JPM_Data$'Adj Close'[-1]/JPM_Data$'Adj Close'[-num])
+View(JPM_Daily_stock_returns)
+
+#Percentage JPM Daily stock returns
+Percentage_JPM_Daily_stock_returns = JPM_Daily_stock_returns * 100
+View(Percentage_JPM_Daily_stock_returns)
+
+
+#view the scatter plot indicating the JP Morgan stock price evolution
+ggplot(JPM_Data, aes(x = Date,y = JPM_Data$'Adj Close')) + 
+  geom_point() + geom_smooth(method = 'lm', color = 'red') + 
+  labs(x = 'year', y = 'JPM_Stock_Price')
+
+
+
+#Question 2 - LINEAR REGRESSION
+#Load S&P500
+S_P500<- read_excel("GSPC.xlsx", col_types = c("date", 
+                                              "numeric", "numeric", "numeric", "numeric", 
+                                              "numeric", "numeric"))
+View(S_P500)
+
+#Regression analysis for calculating the connection between X =S_P500 & Y =JPM
+linear_regression = lm(JPM_Data$'Adj Close'~S_P500$'Adj Close')
+View(linear_regression)
+summary(linear_regression)
+
+
+
+#Question 3 - Univariate Time Series
+# Load S&P/Case-Shiller U.S. National Home Price Index
+Price_index  <- read_excel("UTS.xls", col_types = c("date", 
+                                                  "numeric"))
+View(Price_index)
+
+attach(Price_index)
+
+#Visualization 
+#analysis is to know what types of time series models we may need
+ggplot(data = Price_index, mapping = aes(x=observation_date,y=CSUSHPISA))+ geom_line(color
+                                                                                   ="darkblue") + labs(x="",y="CPI Price_index - compounded annual rate of change")
+
+
+#1.Forecast S&P/Case-Shiller U.S. National Home Price Index using an ARMA model.
+#Selecting and Converting first 300 data frame to ln format
+lnstock = log(CSUSHPISA[1:300])
+lnstock
+##Implementing ARMA - Forecasting and Plotting for truncated data
+# fit a simple ARMA model with 3 lags, no differencing, 1 moving -
+#average terms – i.e. an ARMA(3,0,1) model:
+pricearima <- ts(lnstock, start = c(1990,90), frequency = 12)
+fit = arima(pricearima, order = c(3,0,1))
+fit_resid = residuals(fit)
+plot(pricearima, type = 'l')
+title('UTS Price')
+#Converting to natural number
+exp(lnstock)
+
+
+#2.Implement the Augmented Dickey-Fuller Test for checking the existence of a unit root in Case-Shiller Index series. 
+#Auto-correlation
+# Convert the data frame to a time series object
+CPI_percent_change <- ts(Price_index$CSUSHPISA, start=1990,frequency=12)
+# Truncate the time series object-
+CPI_percent_change_truncated <- window(CPI_percent_change, start = 2002)
+# construct the ACF for the full and truncated sample
+acf(CPI_percent_change)
+acf(CPI_percent_change_truncated)
+# construct the PACF for the full and truncated sample
+pacf(CPI_percent_change)
+pacf(CPI_percent_change_truncated)
+
+# conduct formal stationarity tests:
+# augmented dickey fuller tests:
+adf.test(CPI_percent_change)
+adf.test(CPI_percent_change_truncated)
+# KPSS tests:
+kpss.test(CPI_percent_change)
+kpss.test(CPI_percent_change_truncated)
+
+#3. Implement an ARIMA(p,d,q) model. Determine p, d, q using Information Criterion or Box-Jenkins methodology.
+# fit a simple ARIMA model with 1 lag, 0 differencing, 0 moving - 
+#average terms – i.e. an ARIMA(1,0,0) model determined by Box-Jenkins:
+AR_model1 <- arima(window(CPI_percent_change,start=1990,end =
+                            2013), order=c(1,0,0), method = "ML")
+summary(AR_model1)
+
+#check if it has white noise errors:
+Box.test(AR_model1$residuals, lag = 12)
+
+
+#testing with  an ARIMA (12, 2, 2) [12 lags, 2 times differences, 2 moving average terms] 
+#model to see if differencing will improve the fit of the model: 
+AR_model2 <- arima(window(CPI_percent_change,start=1990,end =
+                            2013), order=c(12,2,2), method = "ML")
+summary(AR_model2)
+
+#check if it has white noise errors:
+Box.test(AR_model2$residuals, lag = 12)
+
+#Determining the best model using auto ARIMA Function
+AR_model3 <- auto.arima(CPI_percent_change)
+summary(AR_model3)
+
+#4. Forecast the future evolution of Case-Shiller Index using the ARMA model. Test model using in-sample forecasts.
+#Forcasting using ARMA Model (3,0,1) from question 1 and testing using sample
+fitlnstock <- ts(lnstock, start = c(1990,90), frequency = 12)
+fitted_forecast = arima(fitlnstock, order = c(3,0,1))
+forecastedvalues_ln = forecast(fitted_forecast, h = 97)
+forecastedvalues_ln
+ARMA_forecast <- predict(fitted_forecast, n.ahead= 72,se.fit=TRUE)
+plot(forecastedvalues_ln)
+
+#The object ARMA_forecast contains two elements: ARMA_forecast$pred is the predicted value of the
+#series, and ARMA_forecast$se is the estimated standard error of the forecast. We will use this to plot
+#the predicted values along with our uncertainty about those forecasts. 
+lines(ARMA_forecast$pred,col="blue")
+lines(ARMA_forecast$pred+2*ARMA_forecast$se,col="cornflowerblue",lty
+      = "dashed")
+lines(ARMA_forecast$pred-2*ARMA_forecast$se,col="cornflowerblue",lty
+      = "dashed")
+
+forecastedvaluesextracted = as.numeric(forecastedvalues_ln$mean)
+finalforecastvalues = exp(forecastedvaluesextracted)
+finalforecastvalues
+
+
+#Percentage Error
+#comparing sample data frame
+df<-data.frame(CSUSHPISA[300:396], finalforecastvalues)
+col_headings<-c("Actual Price", "Forecasted Price")
+names(df)<-col_headings
+attach(df)
+percentage_error = ((df$'Actual Price' - df$'Forecasted Price')/df$'Forecasted Price')
+percentage_error
+mean(percentage_error)
+View(df)
+
+
+
+
+
+
